@@ -1,3 +1,5 @@
+'use strict';
+
 const socketio = require('socket.io');
 const HermesMessage = require('hermesjs-message');
 
@@ -10,11 +12,19 @@ function init (settings) {
 function HermesSocketIO (settings, hermes) {
   this.hermes = hermes;
   this.server_settings = settings;
-  this.listen = _listen.bind(this);
-  this.send = _send.bind(this);
 }
 
-function _setup () {
+HermesSocketIO.prototype.listen = function listen () {
+  this.setup();
+  if (this.http_server.listen) {
+    this.server = this.http_server.listen(this.server_settings.port || 80);
+  } else {
+    this.server = this.http_server(this.server_settings.port || 80);
+  }
+  return this.server;
+};
+
+HermesSocketIO.prototype.setup = function setup () {
   this.http_server = this.server_settings.http_server;
   if (!this.http_server) {
     this.io = socketio();
@@ -26,35 +36,25 @@ function _setup () {
     this.hermes.emit('client:ready', { name: 'Socket.IO adapter' });
     socket.onevent = (packet) => {
       const topic = packet.data[0];
-      _published.call(this, _createMessageFromClient.call(this, topic, packet, socket));
+      this.published(this.createMessageFromClient(topic, packet, socket));
     };
   });
-}
+};
 
-function _listen () {
-  _setup.call(this);
-  if (this.http_server.listen) {
-    this.http_server.listen(this.server_settings.port || 80);
-  } else {
-    this.http_server(this.server_settings.port || 80);
-  }
-  return this.client;
-}
-
-function _published (message) {
+HermesSocketIO.prototype.published = function published (message) {
   this.hermes.emit('client:message', message);
-}
+};
 
-function _createMessage (topic, message) {
+HermesSocketIO.prototype.createMessage = function createMessage (topic, message) {
   return {
     protocol: message.protocol || this.server_settings.protocol || 'ws',
     payload: message.payload,
     topic,
     headers: message.headers
   };
-}
+};
 
-function _createMessageFromClient (topic, packet, client) {
+HermesSocketIO.prototype.createMessageFromClient = function createMessageFromClient (topic, packet, client) {
   const message = new HermesMessage({
     protocol: 'ws',
     payload: packet.data[1],
@@ -64,13 +64,13 @@ function _createMessageFromClient (topic, packet, client) {
     original_packet: packet
   });
 
-  message.send = _send.bind(this, message);
+  message.on('send', this.send.bind(this, message));
 
   return message;
-}
+};
 
-function _send (message) {
-  this.io.emit(message.topic, _createMessage.call(this, message.topic, message));
-}
+HermesSocketIO.prototype.send = function send (message) {
+  this.io.emit(message.topic, this.createMessage(this, message.topic, message));
+};
 
 module.exports = init;
